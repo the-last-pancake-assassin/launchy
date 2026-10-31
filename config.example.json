@@ -1,0 +1,10 @@
+{
+  "palette": {
+    "background": "default",
+    "foreground": "default",
+    "border": "default",
+    "title": "default",
+    "selected_background": "white",
+    "selected_foreground": "black"
+  }
+}

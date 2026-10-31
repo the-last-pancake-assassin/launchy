@@ -27,6 +27,9 @@ This installs `launchy` to `~/.local/bin`. To install elsewhere, set `PREFIX`:
 PREFIX=/usr/local ./scripts/install.sh
 ```
 
+The installer also creates `~/.config/launchy/config.json` with the sample
+palette, without replacing an existing config. `XDG_CONFIG_HOME` is respected.
+
 ## Run
 
 ```sh
@@ -38,3 +41,7 @@ launchy list
 started in a new session detached from the terminal. Type in the bottom filter
 field to narrow the list by application name. Up/Down moves through the list
 and wraps around; Enter launches the selected application.
+
+Use the **Settings** tab (F2) to view the config and press Enter to edit it with
+`$EDITOR` (defaults to `vi`). Palette colors accept W3C color names, `#RRGGBB`,
+or `default` to use the terminal color.
