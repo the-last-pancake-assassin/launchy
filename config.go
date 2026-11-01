@@ -15,7 +15,8 @@ import (
 )
 
 type appSettings struct {
-	Palette colorPalette `json:"palette"`
+	ApplicationDirectories []string     `json:"application_directories"`
+	Palette                colorPalette `json:"palette"`
 }
 
 type colorPalette struct {
@@ -38,6 +39,7 @@ type resolvedPalette struct {
 
 func defaultSettings() appSettings {
 	return appSettings{
+		ApplicationDirectories: defaultApplicationDirectories(),
 		Palette: colorPalette{
 			Background:         "default",
 			Foreground:         "default",
@@ -80,6 +82,14 @@ func loadSettings(path string) (appSettings, error) {
 			return appSettings{}, fmt.Errorf("parse settings %s: multiple JSON values", path)
 		}
 		return appSettings{}, fmt.Errorf("parse settings %s: %w", path, err)
+	}
+	if len(settings.ApplicationDirectories) == 0 {
+		return appSettings{}, errors.New("application_directories must contain at least one path")
+	}
+	for index, directory := range settings.ApplicationDirectories {
+		if strings.TrimSpace(directory) == "" {
+			return appSettings{}, fmt.Errorf("application_directories[%d] must not be empty", index)
+		}
 	}
 	if _, err := resolvePalette(settings.Palette); err != nil {
 		return appSettings{}, fmt.Errorf("validate settings %s: %w", path, err)
@@ -134,7 +144,7 @@ func ensureSettingsFile(path string) error {
 
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if errors.Is(err, os.ErrExist) {
-		return nil
+		return addDefaultApplicationDirectories(path)
 	}
 	if err != nil {
 		return fmt.Errorf("create settings %s: %w", path, err)
@@ -145,6 +155,66 @@ func ensureSettingsFile(path string) error {
 	}
 	if err := file.Close(); err != nil {
 		return fmt.Errorf("close settings %s: %w", path, err)
+	}
+	return nil
+}
+
+func addDefaultApplicationDirectories(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read settings %s: %w", path, err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("parse settings %s: %w", path, err)
+	}
+	if fields == nil {
+		return errors.New("settings must be a JSON object")
+	}
+	if _, exists := fields["application_directories"]; exists {
+		return nil
+	}
+
+	settings, err := loadSettings(path)
+	if err != nil {
+		return err
+	}
+	settings.ApplicationDirectories = defaultApplicationDirectories()
+	updated, err := json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode migrated settings: %w", err)
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return fmt.Errorf("inspect settings %s: %w", path, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("refusing to migrate settings symlink %s", path)
+	}
+
+	file, err := os.CreateTemp(filepath.Dir(path), ".launchy-config-*")
+	if err != nil {
+		return fmt.Errorf("create temporary settings file: %w", err)
+	}
+	tempPath := file.Name()
+	defer os.Remove(tempPath)
+	if err := file.Chmod(info.Mode().Perm()); err != nil {
+		file.Close()
+		return fmt.Errorf("set migrated settings permissions: %w", err)
+	}
+	if _, err := file.Write(append(updated, '\n')); err != nil {
+		file.Close()
+		return fmt.Errorf("write migrated settings: %w", err)
+	}
+	if err := file.Sync(); err != nil {
+		file.Close()
+		return fmt.Errorf("sync migrated settings: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("close migrated settings: %w", err)
+	}
+	if err := os.Rename(tempPath, path); err != nil {
+		return fmt.Errorf("replace settings %s: %w", path, err)
 	}
 	return nil
 }

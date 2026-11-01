@@ -17,19 +17,53 @@ type application struct {
 	Path string
 }
 
-func applicationDirectories(home string) []string {
+func defaultApplicationDirectories() []string {
 	return []string{
 		"/usr/share/applications",
-		filepath.Join(home, ".local", "share", "applications"),
-		filepath.Join(home, "Desktop"),
+		"$HOME/.local/share/applications",
+		"$HOME/Desktop",
 	}
 }
 
-func discoverApplications(home string) ([]application, error) {
+func expandApplicationDirectories(directories []string, home string) ([]string, error) {
+	expanded := make([]string, 0, len(directories))
+	for index, directory := range directories {
+		directory = strings.TrimSpace(directory)
+		if directory == "" {
+			return nil, fmt.Errorf("application_directories[%d] must not be empty", index)
+		}
+		var unsetVariable string
+		directory = os.Expand(directory, func(variable string) string {
+			if variable == "HOME" {
+				return home
+			}
+			value, ok := os.LookupEnv(variable)
+			if !ok || value == "" {
+				unsetVariable = variable
+			}
+			return value
+		})
+		if unsetVariable != "" {
+			return nil, fmt.Errorf("application_directories[%d] references unset environment variable $%s", index, unsetVariable)
+		}
+		if directory == "~" {
+			directory = home
+		} else if strings.HasPrefix(directory, "~/") {
+			directory = filepath.Join(home, directory[2:])
+		}
+		if directory == "" {
+			return nil, fmt.Errorf("application_directories[%d] expands to an empty path", index)
+		}
+		expanded = append(expanded, filepath.Clean(directory))
+	}
+	return expanded, nil
+}
+
+func discoverApplications(directories []string) ([]application, error) {
 	applications := make(map[string]application)
 	var errs []error
 
-	for _, directory := range applicationDirectories(home) {
+	for _, directory := range directories {
 		entries, err := os.ReadDir(directory)
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {

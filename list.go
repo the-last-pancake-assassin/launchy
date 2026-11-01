@@ -25,13 +25,6 @@ func runList() error {
 	if err != nil {
 		return fmt.Errorf("determine home directory: %w", err)
 	}
-	applications, discoveryErr := discoverApplications(home)
-	if len(applications) == 0 {
-		if discoveryErr != nil {
-			return discoveryErr
-		}
-		return errors.New("no applications found")
-	}
 	configFile, err := settingsPath()
 	if err != nil {
 		return err
@@ -40,6 +33,16 @@ func runList() error {
 	if settingsErr != nil {
 		settings = defaultSettings()
 	}
+	directories, err := expandApplicationDirectories(settings.ApplicationDirectories, home)
+	if err != nil {
+		settingsErr = errors.Join(settingsErr, err)
+		settings = defaultSettings()
+		directories, err = expandApplicationDirectories(settings.ApplicationDirectories, home)
+		if err != nil {
+			return fmt.Errorf("resolve default application directories: %w", err)
+		}
+	}
+	applications, discoveryErr := discoverApplications(directories)
 	paletteColors, err := resolvePalette(settings.Palette)
 	if err != nil {
 		return fmt.Errorf("resolve default palette: %w", err)
@@ -62,6 +65,12 @@ func runList() error {
 	)
 	if settingsErr != nil {
 		settingsMessage = settingsErr.Error()
+	}
+	if discoveryErr != nil {
+		if settingsMessage != "" {
+			settingsMessage += "\n"
+		}
+		settingsMessage += fmt.Sprintf("Application discovery: %v", discoveryErr)
 	}
 
 	updateSettingsView := func() {
@@ -146,7 +155,11 @@ func runList() error {
 				})
 			}
 			if len(filtered) == 0 {
-				list.AddItem("No matching applications", "", 0, nil)
+				message := "No matching applications"
+				if len(applications) == 0 && strings.TrimSpace(query) == "" {
+					message = "No applications found in configured directories"
+				}
+				list.AddItem(message, "", 0, nil)
 				return
 			}
 			list.SetCurrentItem(0)
@@ -279,6 +292,13 @@ func runList() error {
 	showSettings = func() {
 		activeTab = "settings"
 		pages.SwitchToPage("settings")
+		if err := ensureSettingsFile(configFile); err != nil {
+			if settingsMessage != "" {
+				settingsMessage += "\n"
+			}
+			settingsMessage += err.Error()
+		}
+		updateSettingsView()
 		ui.SetFocus(settingsView)
 		searchTab.SetStyle(inactiveTabStyle)
 		settingsTab.SetStyle(activeTabStyle)
@@ -324,11 +344,27 @@ func runList() error {
 			updateSettingsView()
 			return
 		}
+		updatedDirectories, err := expandApplicationDirectories(updatedSettings.ApplicationDirectories, home)
+		if err != nil {
+			settingsMessage = err.Error()
+			updateSettingsView()
+			return
+		}
+		updatedApplications, updatedDiscoveryErr := discoverApplications(updatedDirectories)
+
 		settings = updatedSettings
 		paletteColors = updatedPalette
+		applications = updatedApplications
+		discoveryErr = updatedDiscoveryErr
 		settingsMessage = ""
+		if discoveryErr != nil {
+			settingsMessage = fmt.Sprintf("Application discovery: %v", discoveryErr)
+		}
 		if editorErr != nil {
-			settingsMessage = "Editor error: " + editorErr.Error()
+			if settingsMessage != "" {
+				settingsMessage += "\n"
+			}
+			settingsMessage += "Editor error: " + editorErr.Error()
 		}
 		activeTab = "settings"
 		buildUI()

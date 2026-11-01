@@ -39,6 +39,23 @@ func TestParseDesktopEntrySkipsHiddenApplications(t *testing.T) {
 	}
 }
 
+func TestDiscoverApplicationsUsesConfiguredDirectories(t *testing.T) {
+	directory := t.TempDir()
+	path := filepath.Join(directory, "custom.desktop")
+	content := "[Desktop Entry]\nName=Custom App\nExec=custom-app\nType=Application\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	applications, err := discoverApplications([]string{directory})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(applications) != 1 || applications[0].Name != "Custom App" {
+		t.Fatalf("unexpected applications: %#v", applications)
+	}
+}
+
 func TestExpandExec(t *testing.T) {
 	args, err := expandExec(`program --title "Hello world" %U`)
 	if err != nil {

@@ -45,3 +45,8 @@ and wraps around; Enter launches the selected application.
 Use the **Settings** tab (F2) to view the config and press Enter to edit it with
 `$EDITOR` (defaults to `vi`). Palette colors accept W3C color names, `#RRGGBB`,
 or `default` to use the terminal color.
+
+The `application_directories` array in that JSON controls where desktop entries
+are discovered. The defaults are `/usr/share/applications`,
+`$HOME/.local/share/applications`, and `$HOME/Desktop`; `$HOME`, `~`, and
+environment variables are expanded.

@@ -1,4 +1,9 @@
 {
+  "application_directories": [
+    "/usr/share/applications",
+    "$HOME/.local/share/applications",
+    "$HOME/Desktop"
+  ],
   "palette": {
     "background": "default",
     "foreground": "default",

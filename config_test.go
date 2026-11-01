@@ -12,7 +12,7 @@ import (
 
 func TestLoadSettings(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
-	content := `{"palette":{"background":"#112233","selected_background":"blue"}}`
+	content := `{"application_directories":["/opt/applications"],"palette":{"background":"#112233","selected_background":"blue"}}`
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -33,6 +33,19 @@ func TestLoadSettings(t *testing.T) {
 	}
 	if settings.Palette.Foreground != "default" {
 		t.Fatalf("omitted foreground should use default, got %q", settings.Palette.Foreground)
+	}
+	if !reflect.DeepEqual(settings.ApplicationDirectories, []string{"/opt/applications"}) {
+		t.Fatalf("got application directories %#v", settings.ApplicationDirectories)
+	}
+}
+
+func TestExampleSettingsLoads(t *testing.T) {
+	settings, err := loadSettings("config.example.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(settings.ApplicationDirectories) != 3 {
+		t.Fatalf("got %d application directories, want 3", len(settings.ApplicationDirectories))
 	}
 }
 
@@ -83,12 +96,44 @@ func TestSettingsPathUsesXDGConfigHome(t *testing.T) {
 	}
 }
 
-func TestEnsureSettingsFileDoesNotOverwriteExistingFile(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "launchy", "config.json")
-	if err := ensureSettingsFile(path); err != nil {
+func TestExpandApplicationDirectories(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "home")
+	extra := filepath.Join(t.TempDir(), "extra-apps")
+	t.Setenv("LAUNCHY_TEST_APPS", extra)
+
+	directories, err := expandApplicationDirectories([]string{
+		"$HOME/.local/share/applications",
+		"~/Desktop",
+		"$LAUNCHY_TEST_APPS",
+	}, home)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte("user settings"), 0o600); err != nil {
+	want := []string{
+		filepath.Join(home, ".local", "share", "applications"),
+		filepath.Join(home, "Desktop"),
+		extra,
+	}
+	if !reflect.DeepEqual(directories, want) {
+		t.Fatalf("got %#v, want %#v", directories, want)
+	}
+}
+
+func TestExpandApplicationDirectoriesRejectsUnsetVariables(t *testing.T) {
+	t.Setenv("LAUNCHY_MISSING_APPS", "")
+	_, err := expandApplicationDirectories([]string{"$LAUNCHY_MISSING_APPS/applications"}, t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), "unset environment variable") {
+		t.Fatalf("expected unset variable error, got %v", err)
+	}
+}
+
+func TestEnsureSettingsFileDoesNotOverwriteExistingFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "launchy", "config.json")
+	content := `{"application_directories":["/opt/apps"],"palette":{"border":"green"}}`
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -99,7 +144,32 @@ func TestEnsureSettingsFileDoesNotOverwriteExistingFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(data) != "user settings" {
+	if string(data) != content {
 		t.Fatalf("existing settings were overwritten: %q", data)
+	}
+}
+
+func TestEnsureSettingsFileMigratesMissingDirectories(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "launchy", "config.json")
+	content := `{"palette":{"border":"green","selected_background":"purple"}}`
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ensureSettingsFile(path); err != nil {
+		t.Fatal(err)
+	}
+	settings, err := loadSettings(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(settings.ApplicationDirectories, defaultApplicationDirectories()) {
+		t.Fatalf("unexpected migrated application directories: %#v", settings.ApplicationDirectories)
+	}
+	if settings.Palette.Border != "green" || settings.Palette.SelectedBackground != "purple" {
+		t.Fatalf("migration changed existing palette: %#v", settings.Palette)
 	}
 }
